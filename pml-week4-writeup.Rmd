@@ -1,0 +1,122 @@
+---
+title: "Practical Machine Learning Week 4 Project"
+autor: Petr Chovanec
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+#setwd("C:/Petr/dropbox/Dropbox/coursera/machineJHU/")
+setwd("C:/Petr/coursera/pml/")
+```
+
+## Executive Summary
+
+Recent availability of devices like _Jawbone Up_, _Nike FuelBand_, and _Fitbit_ made possible to collect a large amounts of data about people's exercises. This project analyzes these large datasets to predict whether people exercise _correctly_ or _incorrectly_. For this goal, we use data from accelerometers on the participants' belt, forearm, arm, and dumbell as described in [1].
+
+As we will show in the following lines, we have loaded and cleaned the data, and predicted three common type of models, Random Forest, CART and Stochastic Gradient Boosting Trees. The most accurate is Random Forest, and that's why we used it as our final model. At the end we predicted outcomes of the validation dataset.  
+
+## Data Preparation
+
+Dataset are from the Weight Lifting Exercise Dataset by  (see more in [1], [2], [3])
+
+First we load the data and make the general consistency check (on top of displayed, we also used _summary_, _str_ and _table_ commands). We also found that "#DIV/0!" is also NA for us
+
+```{r dataload, include=TRUE, warning=FALSE, message=FALSE, cache=TRUE}
+library(tidyverse); library(caret); library(plyr); library(dplyr)
+trainingdata <- read.csv('pml-training.csv', na.strings = c("","NA","#DIV/0!"))
+val <- read.csv('pml-testing.csv', na.strings = c("","NA","#DIV/0!"))
+```
+
+We also need to prepare our data for the analysis. First, as per assignment, we should use only belt, arm, dumbbell and forearm sensors. We select them in the first part of the code. Second, we also need to delete near zero variables from the dataset. Lastly, we impute missing values using the _caret_ package.
+
+
+```{r nearzero, include=TRUE, cache=TRUE}
+prepareData <- function(dts){dts <- dts[-1]}
+trainingdata <- prepareData(trainingdata)
+val <- prepareData(val)
+
+logicalBADF <- grep("_belt|_arm|_dumbbell|_forearm", names(trainingdata))
+trainingdata <- trainingdata[,c(logicalBADF,which(names(trainingdata)=="classe"))]
+
+trainZeros <- nearZeroVar(trainingdata, saveMetrics=TRUE)
+trainingdata <- trainingdata[,trainZeros$nzv == FALSE]
+
+preProc <- preProcess(trainingdata, method = c("knnImpute"))
+trainingdata2 <- predict(preProc,trainingdata)
+```
+
+At the end we create a training and testing partition using the _caret_ package.
+
+```{r, echo=TRUE, include=TRUE, cache=TRUE}
+set.seed(123)
+inTrain <- createDataPartition(y=trainingdata2$classe, p=0.7, list=FALSE)
+train <- trainingdata2[inTrain,]
+testing <- trainingdata2[-inTrain,]
+dim(train);dim(testing)
+```
+As we can see, only 118 potential predictors remain in the dataset.
+
+
+## Analytics
+
+We are going to use multiple methods using  and then we'll see which one is the best.
+
+### Random Forest (rf)
+
+We will use cross-validation with three parts what looks like a good choice.
+
+```{r rf, echo=TRUE, comment="", include=TRUE, cache=TRUE, warning=FALSE, message=FALSE}
+randformod <- train(classe ~ ., data=train, method='rf', trControl=trainControl(method='cv', number = 3))
+```
+
+### Classification and Regression Trees (rpart)
+
+Here we run standard CART model with maximal depth of 5.
+
+```{r cart, echo=TRUE, include=TRUE, cache=TRUE, warning=FALSE, message=FALSE}
+cartmod <- train(classe ~ ., data=train, method='rpart',control = rpart.control(maxdepth = 5))
+```
+
+### Stochastic Gradient Boosting Trees (gbm)
+
+```{r gbm, echo=TRUE,comment="", include=TRUE, cache=TRUE, warning=FALSE, message=FALSE}
+gbmmod <- train(classe ~ .,data=train,method='gbm', trControl=trainControl(method='cv', number = 10), verbose=FALSE)
+```
+
+ 
+## Testing on validation data
+
+Now we test the model on validation part of the dataset (we created as a partition), and we show the Accuracy of different methods.
+
+```{r valdata, echo=FALSE,comment=FALSE, include=TRUE, cache=TRUE}
+results <- function(mdl){ confusionMatrix(predict(mdl, newdata=testing), testing$classe)$overall[1]
+}
+
+knitr::kable(data.frame(Model=c("Random Forests","CART","GBM"), Accuracy = c(results(randformod),results(cartmod),results(gbmmod)))) 
+
+finalmodel <- randformod
+```
+
+Because the highest accuracy is achieved for Random Forest, we chose it as the final model.
+
+## Predicting Validation Dataset
+
+The following is the prediction for the validation dataset.
+
+```{r, echo=FALSE, include=TRUE, cache=TRUE}
+val2 <- predict(preProc,val)
+predVal <- predict(finalmodel, newdata=val2)
+print(data.frame(id=1:length(predVal),predicted=predVal))
+```
+
+## Conclusion
+
+We have loaded and cleaned the data, and predicted three common type of models. The most accurate seems to be the Random Forest model, and that's why we used it as our final model. At the end we predicted outcomes of the validation dataset.  
+
+## References
+
+[1] Data description: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+
+[2] Train data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+[3] Test data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
